@@ -11,8 +11,7 @@ canvas{width:100%;height:100%;display:block}
 #cam{position:fixed;right:14px;top:12px;width:44px;height:44px;border-radius:50%;background:#0006;color:#fff;font-size:22px;display:none;align-items:center;justify-content:center}body.t #cam{display:flex}
 #joy{position:fixed;width:100px;height:100px;border-radius:50%;background:#fff3;border:2px solid #fff8;display:none;pointer-events:none}
 #knob{position:absolute;left:30px;top:30px;width:40px;height:40px;border-radius:50%;background:#fffa}
-#fire{position:fixed;right:28px;bottom:36px;width:90px;height:90px;border-radius:50%;background:#e33b;border:3px solid #fff;color:#fff;font:700 16px system-ui;display:none;align-items:center;justify-content:center}
-body.t #fire{display:flex}
+#fire{position:fixed;right:28px;bottom:36px;width:90px;height:90px;border-radius:50%;background:#e33b;border:3px solid #fff;color:#fff;font:700 16px system-ui;display:none;align-items:center;justify-content:center}body.t #fire{display:flex}
 </style></head><body>
 <canvas id="c"></canvas><div id="ch"></div>
 <div id="joy"><div id="knob"></div></div><div id="fire">FIRE</div><div id="cam">👁</div>
@@ -29,8 +28,8 @@ const cv=document.getElementById('c'),gl=cv.getContext('webgl',{failIfMajorPerfo
 if(!gl){showErr('WebGL is not available in this browser. Try Chrome with hardware acceleration enabled (chrome://settings/system), and open the file directly from your computer.');throw new Error('no webgl')}
 function sh(t,s){const o=gl.createShader(t);gl.shaderSource(o,s);gl.compileShader(o);if(!gl.getShaderParameter(o,gl.COMPILE_STATUS))throw new Error('Shader: '+gl.getShaderInfoLog(o));return o}
 const pr=gl.createProgram();
-gl.attachShader(pr,sh(gl.VERTEX_SHADER,`attribute vec3 p,n;uniform mat4 uVP,uM,uR;varying vec3 vn;varying float vd;void main(){gl_Position=uVP*(uM*vec4(p,1.));vn=(uR*vec4(n,0.)).xyz;vd=gl_Position.w;}`));
-gl.attachShader(pr,sh(gl.FRAGMENT_SHADER,`precision mediump float;uniform vec3 uC;varying vec3 vn;varying float vd;void main(){float l=.45+.55*max(dot(normalize(vn),normalize(vec3(.5,1.,.3))),0.);vec3 c=mix(uC*l,vec3(.61,.83,.94),clamp(vd/300.-.2,0.,1.));gl_FragColor=vec4(c,1.);}`));
+gl.attachShader(pr,sh(gl.VERTEX_SHADER,`attribute vec3 p,n;uniform mat4 uVP,uM,uR;varying vec3 vn;varying float vd;void main(){gl_Position=uVP*(uM*vec4(p,1.));vn=(uR*vec4(n,0.)).xyz;vd=gl_Position[3];gl_Position[3]=1.;}`));
+gl.attachShader(pr,sh(gl.FRAGMENT_SHADER,`precision mediump float;uniform vec3 uC;varying vec3 vn;varying float vd;void main(){float l=.45+.55*max(dot(normalize(vn),normalize(vec3(.5,1.,.3))),0.);vec3 c=uC*(.55+l*.9);gl_FragColor=vec4(c,1.);}`));
 gl.linkProgram(pr);gl.useProgram(pr);
 const P=[],N=[],I=[];
 [[0,1],[0,-1],[1,1],[1,-1],[2,1],[2,-1]].forEach(([a,s],i)=>{const u=(a+1)%3,v=(a+2)%3;
@@ -79,7 +78,7 @@ const flags=[{c:null},{c:null}];
 const fpos=t=>{const f=flags[t];return f.c?{x:f.c.x,y:f.c.y+2.4,z:f.c.z}:{x:base(t).x,y:0,z:base(t).z}};
 const all=[];
 function spawn(e){const b=base(e.t);e.x=b.x+rnd(-3.5,3.5);e.z=b.z+(e.t?1:-1)*rnd(0,5);e.y=0;e.vy=0;e.ri=0;e.hp=e.pl?100:50;e.flag=false;e.yaw=e.t?0:Math.PI}
-function mk(t,i,pl){const e={t,pl,x:0,y:0,z:0,yaw:0,hp:1,cd:rnd(1,3),ph:rnd(0,9),role:i<3?1:i<5?2:0,wp:null,tm:0,flag:false};const m=i%2?1:-1;e.rt=[[m*3,-2],[m*11,-2],[m*12.1,0],[m*12.1,4.7],[m*8.5,4.7]].map(q=>loc(t,q[0],q[1]));spawn(e);all.push(e);return e}
+function mk(t,i,pl){const e={t,pl,x:0,y:0,z:0,yaw:0,hp:1,cd:rnd(1,3),ph:rnd(0,9),role:i<3?1:i<5?2:0,wp:null,tm:0,flag:false};const m=i%2?1:-1;e.rt=[[m*3,-2],[m*11,-2],[m*12.1,0],[m*12.1,4.7],[m*8.3,4.7],[m*5.5,0],[m*1.4,-2],[m*0,0],[m*8,-7],[m*10,-11],[m*7,-16],[m*0,-17]];spawn(e);all.push(e);return e}
 const me=mk(0,9,true);me.pitch=0;
 for(let t=0;t<2;t++)for(let i=0;i<10;i++)mk(t,i,false);
 const arrows=[];let over=false,locked=false;
@@ -200,11 +199,63 @@ function lockIt(){try{const r=cv.requestPointerLock();if(r&&r.catch)r.catch(star
 function startFb(){if(over||locked)return;fb=true;locked=true;ov.style.display='none'}
 ov.onclick=()=>{if(isTouch){try{document.documentElement.requestFullscreen().catch(()=>{})}catch(e){}startFb()}else lockIt()};document.addEventListener('pointerlockerror',startFb);
 addEventListener('keydown',e=>{if(fb&&e.code==='Escape'){fb=false;locked=false;ov.style.display='flex'}});
-document.addEventListener('pointerlockchange',()=>{if(fb)return;locked=document.pointerLockElement===cv;if(!over){ov.style.display=locked?'none':'flex';document.getElementById('msg').innerHTML='<b>Paused – click to resume</b>'}});
+document.addEventListener('pointerlockchange',()=>{if(fb)return;locked=document.pointerLockElement===cv;if(!over){ov.style.display=locked?'none':'flex';document.getElementById('msg').innerHTML='<b>Click to play</b>'}});
 addEventListener('mousemove',e=>{if(!locked||isTouch)return;yaw-=e.movementX*.0024;pit=cl(pit-e.movementY*.0024,-1.4,1.4)});
 function shoot(){if(!locked||over||mcd>0)return;mcd=.55;const cp=Math.cos(pit);
  arrows.push({x:me.x,y:me.y+1.65,z:me.z,vx:Math.sin(yaw)*cp*AS,vy:Math.sin(pit)*AS,vz:Math.cos(yaw)*cp*AS,t:0,life:5,stuck:false})}
 addEventListener('mousedown',()=>{if(!isTouch)shoot()});
 addEventListener('keydown',e=>{keys[e.code]=true;if(e.code==='KeyV')tp=!tp});addEventListener('keyup',e=>keys[e.code]=false);
 requestAnimationFrame(loop);
+
+function drawE(e){
+  if(e.hp<=0||(e.pl&&!tp)||Math.hypot(e.x-me.x,e.z-me.z)>130)return;
+
+  const c=Math.cos(e.yaw), sn=Math.sin(e.yaw), sw=Math.sin(e.ph)*.3;
+  const armor=[.74,.76,.78];
+  const dark=[.15,.17,.2];
+  const leather=[.52,.35,.2];
+  const metal=[.9,.92,.95];
+  const p=(lx,ly,lz,w,h,d,col,ry=0,pit=0)=>box(
+    e.x+lx*c+lz*sn,
+    e.y+ly,
+    e.z-lx*sn+lz*c,
+    w,h,d,col,e.yaw+ry,pit
+  );
+
+  p(-.28, .22, .08, .30, .95, .30, armor);
+  p( .28, .22, .08, .30, .95, .30, armor);
+  p(-.28,-.42, .14, .34, .22, .42, dark);
+  p( .28,-.42, .14, .34, .22, .42, dark);
+
+  p(0,1.18,0,1.0,1.45,.45,armor);
+  p(0,.58,0,.98,.18,.48,leather);
+
+  p(-.68,1.8,0,.32,.52,.34,armor);
+  p( .68,1.8,0,.32,.52,.34,armor);
+
+  p(-1.15,1.45,0,.38,1.05,.26,armor);
+  p( 1.15,1.45,0,.38,1.05,.26,armor);
+  p(-1.32,.62,0,.24,.26,.24,dark);
+  p( 1.32,.62,0,.24,.26,.24,dark);
+
+  p(0,2.45,0,.82,.90,.82,armor);
+  p(0,2.78,0,.94,.72,.92,metal);
+  p(0,2.97,0,.70,.16,.82,dark);
+  p(0,2.45,.42,.52,.34,.12,dark);
+
+  p(-.17,2.50,.52,.08,.08,.06,[1,.42,.18]);
+  p( .17,2.50,.52,.08,.08,.06,[1,.42,.18]);
+
+  for(let i=-2;i<=2;i++)p(i*.14,1.18,.26,.08,1.18,.05,dark);
+
+  p(-.38,1.55,.10,.08,1.40,.08,leather,0,.8);
+  p(.38,1.55,.10,.08,1.40,.08,leather,0,-.8);
+
+  p(-.72,1.75,-.52,.18,.92,.22,leather);
+  p(-.72,1.90,-.58,.12,.24,.12,dark);
+
+  for(let i=0;i<3;i++)p(-.55+i*.12,1.80,-.55,.03,.34,.03,[.72,.56,.28]);
+
+  if(e.hp<50&&!e.pl)p(0,3.1,0,e.hp/50*.8,.10,.10,[.3,.9,.3]);
+}
 </script></body></html>
