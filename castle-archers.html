@@ -1,0 +1,210 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"><title>Castle Archers</title>
+<style>
+html,body{margin:0;height:100%;overflow:hidden;background:#9cd3f0;font-family:system-ui,sans-serif}
+html,body{touch-action:none;-webkit-user-select:none;user-select:none}
+canvas{width:100%;height:100%;display:block}
+#hud{position:fixed;left:12px;top:10px;color:#fff;text-shadow:0 1px 3px #000;font-weight:600;pointer-events:none;line-height:1.5}
+#hp{width:180px;height:12px;background:#0006;border-radius:6px;overflow:hidden}#hpf{height:100%;background:#4c4;width:100%}
+#ch{position:fixed;left:50%;top:50%;width:12px;height:12px;margin:-8px;border:2px solid #fff;border-radius:50%;opacity:.85;pointer-events:none;box-shadow:0 0 2px #000}
+#ov{position:fixed;inset:0;background:#000a;color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;cursor:pointer;padding:20px}
+#ov h1{margin:0 0 8px;font-size:40px}#ov p{margin:4px;max-width:520px}
+#cam{position:fixed;right:14px;top:12px;width:44px;height:44px;border-radius:50%;background:#0006;color:#fff;font-size:22px;display:none;align-items:center;justify-content:center}body.t #cam{display:flex}
+#joy{position:fixed;width:100px;height:100px;border-radius:50%;background:#fff3;border:2px solid #fff8;display:none;pointer-events:none}
+#knob{position:absolute;left:30px;top:30px;width:40px;height:40px;border-radius:50%;background:#fffa}
+#fire{position:fixed;right:28px;bottom:36px;width:90px;height:90px;border-radius:50%;background:#e33b;border:3px solid #fff;color:#fff;font:700 16px system-ui;display:none;align-items:center;justify-content:center}
+body.t #fire{display:flex}
+</style></head><body>
+<canvas id="c"></canvas><div id="ch"></div>
+<div id="joy"><div id="knob"></div></div><div id="fire">FIRE</div><div id="cam">👁</div>
+<div id="hud"><div id="hp"><div id="hpf"></div></div><div id="st"></div></div>
+<div id="ov"><h1>Castle Archers</h1>
+<p><b>You are BLUE.</b> Sneak into the red castle, grab the red flag and carry it back to your blue castle to win. Castles have rooms and a second floor – climb the stairs for a sniper's view!</p>
+<p id="ctl">WASD move &bull; Mouse aim &bull; Click shoot &bull; V camera &bull; Esc pause</p><p id="msg"><b>Click to play</b></p></div>
+<script>
+const isTouch='ontouchstart' in window||navigator.maxTouchPoints>0;
+function showErr(m){const o=document.getElementById('ov');o.style.display='flex';o.onclick=null;o.innerHTML='<h1>Oops</h1><p>'+m+'</p>'}
+window.onerror=(m,u,l,c,e)=>{showErr('Error: '+(e&&e.message||m)+(l?' (line '+l+')':''));};
+window.onunhandledrejection=e=>{};
+const cv=document.getElementById('c'),gl=cv.getContext('webgl',{failIfMajorPerformanceCaveat:false})||cv.getContext('experimental-webgl');
+if(!gl){showErr('WebGL is not available in this browser. Try Chrome with hardware acceleration enabled (chrome://settings/system), and open the file directly from your computer.');throw new Error('no webgl')}
+function sh(t,s){const o=gl.createShader(t);gl.shaderSource(o,s);gl.compileShader(o);if(!gl.getShaderParameter(o,gl.COMPILE_STATUS))throw new Error('Shader: '+gl.getShaderInfoLog(o));return o}
+const pr=gl.createProgram();
+gl.attachShader(pr,sh(gl.VERTEX_SHADER,`attribute vec3 p,n;uniform mat4 uVP,uM,uR;varying vec3 vn;varying float vd;void main(){gl_Position=uVP*(uM*vec4(p,1.));vn=(uR*vec4(n,0.)).xyz;vd=gl_Position.w;}`));
+gl.attachShader(pr,sh(gl.FRAGMENT_SHADER,`precision mediump float;uniform vec3 uC;varying vec3 vn;varying float vd;void main(){float l=.45+.55*max(dot(normalize(vn),normalize(vec3(.5,1.,.3))),0.);vec3 c=mix(uC*l,vec3(.61,.83,.94),clamp(vd/300.-.2,0.,1.));gl_FragColor=vec4(c,1.);}`));
+gl.linkProgram(pr);gl.useProgram(pr);
+const P=[],N=[],I=[];
+[[0,1],[0,-1],[1,1],[1,-1],[2,1],[2,-1]].forEach(([a,s],i)=>{const u=(a+1)%3,v=(a+2)%3;
+ [[-1,-1],[1,-1],[1,1],[-1,1]].forEach(([x,y])=>{const q=[0,0,0],m=[0,0,0];q[a]=.5*s;q[u]=.5*x;q[v]=.5*y;m[a]=s;P.push(...q);N.push(...m)});
+ I.push(i*4,i*4+1,i*4+2,i*4,i*4+2,i*4+3)});
+function buf(d,loc,Arr,tg,sz){const b=gl.createBuffer();gl.bindBuffer(tg,b);gl.bufferData(tg,new Arr(d),gl.STATIC_DRAW);if(loc>=0){gl.enableVertexAttribArray(loc);gl.vertexAttribPointer(loc,sz,gl.FLOAT,false,0,0)}}
+buf(P,gl.getAttribLocation(pr,'p'),Float32Array,gl.ARRAY_BUFFER,3);
+buf(N,gl.getAttribLocation(pr,'n'),Float32Array,gl.ARRAY_BUFFER,3);
+buf(I,-1,Uint16Array,gl.ELEMENT_ARRAY_BUFFER);
+const uVP=gl.getUniformLocation(pr,'uVP'),uM=gl.getUniformLocation(pr,'uM'),uR=gl.getUniformLocation(pr,'uR'),uC=gl.getUniformLocation(pr,'uC');
+gl.enable(gl.DEPTH_TEST);gl.clearColor(.61,.83,.94,1);
+const M=new Float32Array(16),R=new Float32Array(16);R[15]=1;M[15]=1;
+function box(x,y,z,w,h,d,col,yaw=0,pit=0){const cy=Math.cos(yaw),sy=Math.sin(yaw),cx=Math.cos(pit),sx=Math.sin(pit);
+ R[0]=cy;R[1]=0;R[2]=-sy;R[4]=sy*sx;R[5]=cx;R[6]=cy*sx;R[8]=sy*cx;R[9]=-sx;R[10]=cy*cx;
+ for(let i=0;i<3;i++){M[i]=R[i]*w;M[4+i]=R[4+i]*h;M[8+i]=R[8+i]*d}M[12]=x;M[13]=y;M[14]=z;
+ gl.uniformMatrix4fv(uM,false,M);gl.uniformMatrix4fv(uR,false,R);gl.uniform3fv(uC,col);gl.drawElements(gl.TRIANGLES,36,gl.UNSIGNED_SHORT,0)}
+function persp(f,a,n,fa){const t=1/Math.tan(f/2),o=new Float32Array(16);o[0]=t/a;o[5]=t;o[10]=(fa+n)/(n-fa);o[11]=-1;o[14]=2*fa*n/(n-fa);return o}
+function mul(a,b){const o=new Float32Array(16);for(let c=0;c<4;c++)for(let r=0;r<4;r++){let s=0;for(let k=0;k<4;k++)s+=a[k*4+r]*b[c*4+k];o[c*4+r]=s}return o}
+function look(e,t){let z=[e[0]-t[0],e[1]-t[1],e[2]-t[2]];const l=Math.hypot(...z);z=z.map(v=>v/l);
+ let x=[z[2],0,-z[0]];const lx=Math.hypot(x[0],x[2]);x=[x[0]/lx,0,x[2]/lx];
+ const y=[z[1]*x[2]-z[2]*x[1],z[2]*x[0]-z[0]*x[2],z[0]*x[1]-z[1]*x[0]],o=new Float32Array(16),d=(v)=>-(v[0]*e[0]+v[1]*e[1]+v[2]*e[2]);
+ o[0]=x[0];o[4]=x[1];o[8]=x[2];o[12]=d(x);o[1]=y[0];o[5]=y[1];o[9]=y[2];o[13]=d(y);o[2]=z[0];o[6]=z[1];o[10]=z[2];o[14]=d(z);o[15]=1;return o}
+
+// ---------- game data ----------
+const BZ=70,AX=50,AZ=90,G=22,AS=42,rnd=(a,b)=>a+Math.random()*(b-a),cl=(v,a,b)=>Math.max(a,Math.min(b,v));
+const TC=[[.2,.45,.95],[.9,.25,.25]],SKIN=[1,.8,.62],STONE=[.62,.62,.66],GRASS=[.36,.65,.3],DK=[.25,.22,.2],BR=[.5,.3,.1],WOOD=[.62,.46,.3],CR=[.6,.4,.2],GR=[.62,.62,.66],DG=[.28,.28,.3],BLK=[.1,.1,.12],ARW=[.95,.9,.6];
+const walls=[],base=t=>({x:0,z:t?-BZ:BZ});
+const wall=(x,z,w,d,h,k,b=0,c=null,f=false)=>walls.push({x,z,hx:w/2,hz:d/2,h,k,b,c,f});
+const loc=(t,u,v)=>({x:u,z:(t?-BZ:BZ)+(t?-1:1)*v});
+[1,-1].forEach(s=>{const bz=s*BZ,tc=TC[s>0?0:1];
+ const F=(u,v,w,d,h,k,b,c,f)=>wall(u,bz+s*v,w,d,h,k,b||0,c,f);
+ F(0,8,30,2,7.2,'w');F(-14,0,2,16,7.2,'w');F(14,0,2,16,7.2,'w');F(-9,-8,10,2,7.2,'w');F(9,-8,10,2,7.2,'w');F(0,-8,8.6,2,7.2,'w',5.2);
+ [-14,14].forEach(x=>[-8,8].forEach(o=>F(x,o,5,5,11,'t')));
+ F(0,5,26,4,6,'s',5.4,null,true);
+ [[-11.25,3.5],[-4,5],[4,5],[11.25,3.5]].forEach(a=>F(a[0],3,a[1],.6,5.4,'r'));
+ F(-4,5,.6,4,5.4,'r');F(4,5,.6,4,5.4,'r');
+ [-2.95,2.95].forEach(x=>F(x,3.2,2.9,.4,9.6,'r',6));F(0,3.2,3,.4,7.2,'q',6);
+ [-4.4,4.4].forEach(x=>{F(x,3.5,.4,1,9.6,'r',6);F(x,6.5,.4,1,9.6,'r',6)});
+ F(0,5,9.6,4.4,10.4,'f',9.6,tc);
+ [-1,1].forEach(m=>{
+  for(let i=0;i<12;i++)F(m*(4.3+.6*i),-2,.6,3,.5*(i+1),'p',0,null,true);
+  F(m*12.1,-.25,1.8,6.5,6,'s',5.4,null,true);
+  F(m*11.05,1.25,.3,3.5,7.2,'q',6);F(m*12.1,-3.35,1.8,.3,7.2,'q',6);F(m*7.85,3,6.5,.3,7.2,'q',6)})});
+[[-18,0],[18,4],[0,-8],[-10,14],[10,-14],[0,12],[26,-20],[-26,20],[-22,-35],[22,35],[-12,-50],[12,50],[0,30],[0,-30],[30,0],[-30,0],[-35,-12],[35,12]].forEach(([x,z])=>wall(x,z,4,4,3,'o'));
+const flags=[{c:null},{c:null}];
+const fpos=t=>{const f=flags[t];return f.c?{x:f.c.x,y:f.c.y+2.4,z:f.c.z}:{x:base(t).x,y:0,z:base(t).z}};
+const all=[];
+function spawn(e){const b=base(e.t);e.x=b.x+rnd(-3.5,3.5);e.z=b.z+(e.t?1:-1)*rnd(0,5);e.y=0;e.vy=0;e.ri=0;e.hp=e.pl?100:50;e.flag=false;e.yaw=e.t?0:Math.PI}
+function mk(t,i,pl){const e={t,pl,x:0,y:0,z:0,yaw:0,hp:1,cd:rnd(1,3),ph:rnd(0,9),role:i<3?1:i<5?2:0,wp:null,tm:0,flag:false};const m=i%2?1:-1;e.rt=[[m*3,-2],[m*11,-2],[m*12.1,0],[m*12.1,4.7],[m*8.5,4.7]].map(q=>loc(t,q[0],q[1]));spawn(e);all.push(e);return e}
+const me=mk(0,9,true);me.pitch=0;
+for(let t=0;t<2;t++)for(let i=0;i<10;i++)mk(t,i,false);
+const arrows=[];let over=false,locked=false;
+function gh(e){let g=0;for(const w of walls){if(w.f&&w.h<=e.y+.7&&w.h>g&&Math.abs(e.x-w.x)<w.hx&&Math.abs(e.z-w.z)<w.hz)g=w.h}return g}
+function push(e,dt){e.x=cl(e.x,-AX,AX);e.z=cl(e.z,-AZ,AZ);
+ for(const w of walls){if(e.y+1.8<=w.b+.1||e.y>=w.h-(w.f?.7:.3))continue;const dx=e.x-w.x,dz=e.z-w.z,px=w.hx+.5-Math.abs(dx),pz=w.hz+.5-Math.abs(dz);if(px>0&&pz>0){if(px<pz)e.x+=px*(dx<0?-1:1);else e.z+=pz*(dz<0?-1:1)}}
+ const g=gh(e);if(e.y>g+.01){e.vy=(e.vy||0)-30*dt;e.y=Math.max(g,e.y+e.vy*dt);if(e.y==g)e.vy=0}else{e.y=g;e.vy=0}}
+function dropFlag(e){if(e.flag){flags[1-e.t].c=null;e.flag=false}}
+function dmg(e,n){e.hp-=n;if(e.hp<=0){dropFlag(e);spawn(e);if(e.pl)document.getElementById('hpf').style.width='100%'}if(e.pl)document.getElementById('hpf').style.width=Math.max(0,e.hp)+'%'}
+function fire(e,vx,vy,vz){arrows.push({x:e.x,y:e.y+1.6,z:e.z,vx,vy,vz,t:e.t,life:5,stuck:false})}
+function botFire(e,o){const dx=o.x-e.x,dz=o.z-e.z,dy=o.y+1.2-(e.y+1.6),h=Math.max(Math.hypot(dx,dz),1),t=h/AS;
+ fire(e,dx/t+rnd(-2.5,2.5),(dy+.5*G*t*t)/t+rnd(-1.5,1.5),dz/t+rnd(-2.5,2.5))}
+function botAI(e,dt){
+ let best=null,bd=1e9;for(const o of all){if(o.t===e.t)continue;const d=Math.hypot(o.x-e.x,o.z-e.z);if(d<bd){bd=d;best=o}}
+ let tx,tz,fight=best&&bd<45;
+ if(e.flag){const b=base(e.t);tx=b.x;tz=b.z}
+ else if(e.role==1){const p=fpos(1-e.t);tx=p.x;tz=p.z}
+ else if(e.role==2){let q=e.rt[e.ri];if(Math.hypot(q.x-e.x,q.z-e.z)<1&&e.ri<e.rt.length-1)q=e.rt[++e.ri];tx=q.x;tz=q.z}
+ else if(fight&&bd>16){tx=best.x;tz=best.z}
+ else{e.tm-=dt;if(!e.wp||e.tm<0||Math.hypot(e.wp.x-e.x,e.wp.z-e.z)<3){e.wp={x:rnd(-AX+5,AX-5),z:rnd(-AZ+15,AZ-15)};e.tm=rnd(4,8)}tx=e.wp.x;tz=e.wp.z}
+ const dx=tx-e.x,dz=tz-e.z,d=Math.hypot(dx,dz);let sp=(e.flag?4.5:5.5);
+ if(!e.role&&!e.flag&&fight&&bd<=16)sp=0;
+ if(d>1&&sp){const ox=e.x,oz=e.z;e.x+=dx/d*sp*dt;e.z+=dz/d*sp*dt;push(e,dt);e.ph+=sp*dt*2.2}
+ if(fight&&(!e.flag||bd<30))e.yaw=Math.atan2(best.x-e.x,best.z-e.z);else if(d>1)e.yaw=Math.atan2(dx,dz);
+ e.cd-=dt;if(fight&&e.cd<=0&&bd<42){botFire(e,best);e.cd=rnd(1.6,3)}
+}
+let tp=false;const keys={};let yaw=Math.PI,pit=0,mcd=0;
+function updateArrows(dt){
+ for(let i=arrows.length-1;i>=0;i--){const a=arrows[i];a.life-=dt;if(a.life<=0){arrows.splice(i,1);continue}if(a.stuck)continue;
+  for(let s=0;s<2&&!a.stuck;s++){const d=dt/2;a.vy-=G*d;a.x+=a.vx*d;a.y+=a.vy*d;a.z+=a.vz*d;
+   if(a.y<0){a.stuck=true;a.life=Math.min(a.life,3);break}
+   for(const w of walls)if(a.y<w.h&&a.y>w.b&&Math.abs(a.x-w.x)<w.hx&&Math.abs(a.z-w.z)<w.hz){a.stuck=true;a.life=Math.min(a.life,3);break}
+   if(a.stuck)break;
+   for(const e of all){if(e.t===a.t)continue;if(Math.abs(e.x-a.x)<.7&&Math.abs(e.z-a.z)<.7&&a.y>e.y&&a.y<e.y+2.1){dmg(e,25);a.life=0;a.stuck=true;break}}
+  }}
+}
+function win(t){over=true;document.exitPointerLock();const o=document.getElementById('ov');o.style.display='flex';
+ o.innerHTML='<h1>'+(t==0?'BLUE WINS! 🏆':'RED WINS!')+'</h1><p>'+(t==0?'You captured the red flag!':'The red team captured your flag.')+'</p><p><b>Click to play again</b></p>';o.onclick=()=>location.reload()}
+function update(dt){
+ const f=[Math.sin(yaw),Math.cos(yaw)],r=[-f[1],f[0]];let mx=0,mz=0;
+ if(keys.KeyW)mz++;if(keys.KeyS)mz--;if(keys.KeyD)mx++;if(keys.KeyA)mx--;mx+=jx;mz+=jz;
+ const l=Math.max(1,Math.hypot(mx,mz)),sp=me.flag?6:7.5;
+ me.x+=(f[0]*mz+r[0]*mx)/l*sp*dt;me.z+=(f[1]*mz+r[1]*mx)/l*sp*dt;push(me,dt);me.yaw=yaw;if(Math.abs(mx)+Math.abs(mz)>.1)me.ph+=dt*10;
+ mcd-=dt;
+ for(const e of all)if(!e.pl)botAI(e,dt);
+ for(const e of all){ // flag pickup / capture
+  const ef=flags[1-e.t];
+  if(!ef.c&&!e.flag){const b=base(1-e.t);if(e.y<2&&Math.hypot(e.x-b.x,e.z-b.z)<2.5){ef.c=e;e.flag=true}}
+  if(e.flag){const b=base(e.t);if(Math.hypot(e.x-b.x,e.z-b.z)<6){win(e.t);return}}}
+ updateArrows(dt);
+}
+const st=document.getElementById('st');
+function hud(){const s=t=>flags[t].c?(flags[t].c.pl?'YOU HAVE IT!':'carried'):'home';
+ st.innerHTML='Blue flag: '+s(0)+'<br>Red flag: '+s(1)+(me.flag?'<br>Run back to your castle!':'')}
+function drawE(e){if(e.hp<=0||(e.pl&&!tp)||Math.hypot(e.x-me.x,e.z-me.z)>130)return;
+ const c=Math.cos(e.yaw),sn=Math.sin(e.yaw),sw=Math.sin(e.ph)*.3,tc=TC[e.t];
+ const p=(lx,ly,lz,w,h,d,col)=>box(e.x+lx*c+lz*sn,e.y+ly,e.z-lx*sn+lz*c,w,h,d,col,e.yaw);
+ p(-.17,.55,sw,.26,.7,.3,BLK);p(.17,.55,-sw,.26,.7,.3,BLK);
+ p(-.17,.3,sw,.3,.5,.34,GR);p(.17,.3,-sw,.3,.5,.34,GR);
+ p(-.17,.08,sw+.06,.3,.16,.42,BR);p(.17,.08,-sw+.06,.3,.16,.42,BR);
+ p(0,1.2,0,.8,.8,.42,GR);p(0,1.2,0,.28,.82,.46,tc);p(0,.78,0,.86,.1,.46,BR);
+ p(-.5,1.6,0,.3,.18,.42,GR);p(.5,1.6,0,.3,.18,.42,GR);
+ p(-.52,1.2,0,.2,.7,.2,DG);p(-.52,.8,0,.24,.2,.24,BR);
+ p(.5,1.4,.38,.2,.2,.75,DG);p(.5,1.4,.82,.25,.25,.25,BR);p(.5,1.4,.85,.06,1.1,.06,BR);
+ p(0,1.85,0,.5,.52,.5,GR);p(0,1.82,.26,.34,.09,.03,BLK);p(0,1.62,.2,.3,.1,.26,SKIN);p(0,2.16,0,.08,.14,.4,tc);
+ p(0,1.3,-.3,.08,1.1,.08,BR);p(.2,1.35,-.3,.16,.5,.16,BR);p(.2,1.65,-.3,.1,.12,.1,ARW);
+ if(e.hp<50&&!e.pl)p(0,2.6,0,e.hp/50*.8,.1,.1,[.3,.9,.3])}
+function render(){
+ const asp=cv.width/cv.height,cp=Math.cos(pit),sp=Math.sin(pit),sy=Math.sin(yaw),cy=Math.cos(yaw),fw=[sy*cp,sp,cy*cp];
+ let eye=[me.x,me.y+1.7,me.z],tg;
+ if(tp){const h=eye;eye=[h[0]-fw[0]*4.5,Math.max(.4,h[1]-fw[1]*4.5+.6),h[2]-fw[2]*4.5];tg=[h[0]+fw[0]*10,h[1]+fw[1]*10,h[2]+fw[2]*10]}
+ else tg=[eye[0]+fw[0],eye[1]+fw[1],eye[2]+fw[2]];
+ gl.uniformMatrix4fv(uVP,false,mul(persp(1.2,asp,.1,500),look(eye,tg)));
+ gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
+ box(0,-.5,0,2*AX+30,1,2*AZ+30,GRASS);
+ const WC={w:[.72,.72,.76],t:[.8,.8,.84],o:[.5,.45,.4],s:WOOD,p:[.6,.6,.64],r:[.78,.74,.66],q:[.72,.72,.76],f:[.5,.5,.5]};
+ for(let t=0;t<2;t++){const b=base(t),sg=t?-1:1,f=-sg,tc=TC[t],Z=v=>b.z+sg*v;
+  box(0,.05,b.z,26,.1,16,[.72,.72,.74]);box(0,.1,b.z,4,.1,16,tc);box(0,.06,b.z+f*15,5,.1,14,[.45,.3,.15]);
+  const bn=(x,y,z)=>{box(x,y,z,1.5,4.5,.2,tc);box(x,y,z+f*.05,.35,4.5,.22,[1,1,1])};
+  [-14,14].forEach(x=>bn(x,6,b.z+f*10.65));[-7,7].forEach(x=>bn(x,3.4,b.z+f*9.15));[-4,4].forEach(x=>bn(x,3.2,Z(2.65)));
+  for(let i=0;i<7;i++){const z=b.z+f*(-6+i*3);[-19,19].forEach(x=>box(x,1,z,.3,2,.3,DK))}
+  [-19,19].forEach(x=>box(x,1.4,b.z+f*3.75,.15,.15,21,DK));
+  box(0,11.9,Z(5),.2,3,.2,DK);box(.9,12.6,Z(5),1.8,1,.1,tc);
+  box(-10,.4,Z(5.2),1.6,.5,3,tc);box(-10,.75,Z(6.5),1.2,.2,.6,[1,1,1]);
+  box(0,.6,Z(5),2.4,.15,1.2,BR);box(0,1.6,Z(6.6),3,3,.4,BR);
+  box(9,.6,Z(4.8),1.2,1.2,1.2,CR);box(11,.6,Z(5.6),1.2,1.2,1.2,CR);box(10,1.8,Z(5.2),1,1,1,CR)}
+ for(const w of walls){const c=w.c||WC[w.k],H=w.h-w.b;box(w.x,w.b+H/2,w.z,w.hx*2,H,w.hz*2,c);
+  if(w.b)continue;
+  if(w.k=='t'){for(let a=-1;a<=1;a++)for(let b=-1;b<=1;b++)if(a||b)box(w.x+a*(w.hx-.6),w.h+.5,w.z+b*(w.hz-.6),1.2,1,1.2,c)}
+  else if(w.k=='w'){if(w.hx>=w.hz)for(let o=-w.hx+.6;o<w.hx;o+=2)box(w.x+o,w.h+.5,w.z,1.2,1,w.hz*2,c);else for(let o=-w.hz+.6;o<w.hz;o+=2)box(w.x,w.h+.5,w.z+o,w.hx*2,1,1.2,c)}}
+ for(let t=0;t<2;t++){const p=fpos(t);box(p.x,p.y+1.6,p.z,.15,3.2,.15,DK);box(p.x+.75,p.y+2.7,p.z,1.5,.9,.1,TC[t])}
+ for(const e of all)drawE(e);
+ for(const a of arrows)box(a.x,a.y,a.z,.07,.07,1.3,ARW,Math.atan2(a.vx,a.vz),-Math.atan2(a.vy,Math.hypot(a.vx,a.vz)));
+ if(!tp){const rg=[-cy,0,sy],up=[-sy*sp,cp,-cy*sp],at=(a,b,c)=>[0,1,2].map(k=>eye[k]+fw[k]*a+rg[k]*b+up[k]*c);
+  box(...at(.55,.28,-.3),.11,.11,.6,DG,yaw,-pit);box(...at(.9,.22,-.2),.14,.14,.14,BR,yaw,-pit);
+  box(...at(.95,.22,-.1),.04,.75,.04,BR,yaw,-pit);box(...at(1.0,.22,-.2),.03,.03,.8,ARW,yaw,-pit)}
+}
+let last=performance.now(),fr=0;
+function loop(n){requestAnimationFrame(loop);const dt=Math.min(.05,(n-last)/1000);last=n;if(locked&&!over)update(dt);render();if(++fr%8==0)hud()}
+function rs(){const k=isTouch?Math.min(1,900/innerWidth):1;cv.width=innerWidth*k;cv.height=innerHeight*k;gl.viewport(0,0,cv.width,cv.height)}
+addEventListener('resize',rs);rs();
+const ov=document.getElementById('ov');
+if(isTouch){document.body.classList.add('t');document.getElementById('ctl').innerHTML='Left thumb: move &bull; Drag right side: aim &bull; FIRE button: shoot &bull; 👁: camera<br>Tip: turn your phone sideways';}
+let jid=null,lid=null,jo={x:0,y:0},lx=0,ly=0,jx=0,jz=0;
+const joy=document.getElementById('joy'),knob=document.getElementById('knob'),fireBtn=document.getElementById('fire');
+document.getElementById('cam').addEventListener('touchstart',e=>{e.preventDefault();e.stopPropagation();tp=!tp},{passive:false});
+fireBtn.addEventListener('touchstart',e=>{e.preventDefault();e.stopPropagation();shoot()},{passive:false});
+addEventListener('touchstart',e=>{e.preventDefault();if(!locked||over)return;for(const t of e.changedTouches){if(t.target===fireBtn||t.target.id==='cam')continue;
+ if(t.clientX<innerWidth/2&&jid===null){jid=t.identifier;jo={x:t.clientX,y:t.clientY};joy.style.left=(t.clientX-50)+'px';joy.style.top=(t.clientY-50)+'px';joy.style.display='block';knob.style.transform='none'}
+ else if(t.clientX>=innerWidth/2&&lid===null){lid=t.identifier;lx=t.clientX;ly=t.clientY}}},{passive:false});
+addEventListener('touchmove',e=>{e.preventDefault();for(const t of e.changedTouches){
+ if(t.identifier===jid){let dx=(t.clientX-jo.x)/50,dy=(t.clientY-jo.y)/50;const l=Math.max(1,Math.hypot(dx,dy));dx/=l;dy/=l;jx=dx;jz=-dy;knob.style.transform='translate('+dx*35+'px,'+dy*35+'px)'}
+ else if(t.identifier===lid){yaw-=(t.clientX-lx)*.006;pit=cl(pit-(t.clientY-ly)*.006,-1.4,1.4);lx=t.clientX;ly=t.clientY}}},{passive:false});
+function tend(e){for(const t of e.changedTouches){if(t.identifier===jid){jid=null;jx=jz=0;joy.style.display='none'}if(t.identifier===lid)lid=null}}
+addEventListener('touchend',tend);addEventListener('touchcancel',tend);
+let fb=false;
+function lockIt(){try{const r=cv.requestPointerLock();if(r&&r.catch)r.catch(startFb)}catch(e){startFb()}}
+function startFb(){if(over||locked)return;fb=true;locked=true;ov.style.display='none'}
+ov.onclick=()=>{if(isTouch){try{document.documentElement.requestFullscreen().catch(()=>{})}catch(e){}startFb()}else lockIt()};document.addEventListener('pointerlockerror',startFb);
+addEventListener('keydown',e=>{if(fb&&e.code==='Escape'){fb=false;locked=false;ov.style.display='flex'}});
+document.addEventListener('pointerlockchange',()=>{if(fb)return;locked=document.pointerLockElement===cv;if(!over){ov.style.display=locked?'none':'flex';document.getElementById('msg').innerHTML='<b>Paused – click to resume</b>'}});
+addEventListener('mousemove',e=>{if(!locked||isTouch)return;yaw-=e.movementX*.0024;pit=cl(pit-e.movementY*.0024,-1.4,1.4)});
+function shoot(){if(!locked||over||mcd>0)return;mcd=.55;const cp=Math.cos(pit);
+ arrows.push({x:me.x,y:me.y+1.65,z:me.z,vx:Math.sin(yaw)*cp*AS,vy:Math.sin(pit)*AS,vz:Math.cos(yaw)*cp*AS,t:0,life:5,stuck:false})}
+addEventListener('mousedown',()=>{if(!isTouch)shoot()});
+addEventListener('keydown',e=>{keys[e.code]=true;if(e.code==='KeyV')tp=!tp});addEventListener('keyup',e=>keys[e.code]=false);
+requestAnimationFrame(loop);
+</script></body></html>
